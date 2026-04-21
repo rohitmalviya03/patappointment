@@ -1,0 +1,30 @@
+{
+  "name": "patient-appointment-booking-system",
+  "version": "1.0.0",
+  "description": "Multi-lab patient appointment booking system",
+  "private": true,
+  "scripts": {
+    "install-all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm start",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "build": "cd backend && npm run build && cd ../frontend && npm run build",
+    "start": "node backend/server.js",
+    "test": "echo \"Run tests in respective folders\""
+  },
+  "keywords": [
+    "appointment",
+    "booking",
+    "hospital",
+    "lab",
+    "multi-lab",
+    "react",
+    "node",
+    "express"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^7.0.0"
+  }
+}

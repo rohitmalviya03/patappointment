@@ -1,0 +1,708 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { bookingService } from '../services/api';
+import {
+  Container,
+  Typography,
+  Box,
+  AppBar,
+  Toolbar,
+  IconButton,
+  Card,
+  CardContent,
+  Chip,
+  Button,
+  Alert,
+  CircularProgress,
+  Grid,
+  Paper,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  InputAdornment,
+  Pagination,
+  Stack
+} from '@mui/material';
+import {
+  Logout,
+  MedicalServices,
+  EventAvailable,
+  Phone,
+  AccessTime,
+  CheckCircle,
+  Cancel,
+  Pending,
+  Schedule,
+  Search,
+  FilterList,
+  Today,
+  DateRange,
+  Person,
+  LocalHospital
+} from '@mui/icons-material';
+
+const LabDashboard = () => {
+  const [appointments, setAppointments] = useState([]);
+  const [stats, setStats] = useState({
+    total: 0,
+    pending: 0,
+    confirmed: 0,
+    completed: 0,
+    cancelled: 0
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [serviceFilter, setServiceFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState('all');
+  const [expandedAppointmentId, setExpandedAppointmentId] = useState(null);
+  const [statusUpdateLoading, setStatusUpdateLoading] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [itemsPerPage] = useState(10); // Fixed items per page
+  const { user, token, logout } = useAuth();
+
+  useEffect(() => {
+    fetchStats();
+    fetchAppointments();
+  }, [searchTerm, statusFilter, serviceFilter, dateFilter, currentPage]);
+
+  const fetchStats = async () => {
+    try {
+      const response = await bookingService.getBookingStats();
+      setStats(response.data);
+    } catch (err) {
+      console.error('Error fetching stats:', err);
+    }
+  };
+
+  const fetchAppointments = async () => {
+    try {
+      // Build query parameters for filtering and pagination
+      const params = {
+        page: currentPage,
+        limit: itemsPerPage
+      };
+
+      if (searchTerm.trim()) {
+        params.search = searchTerm.trim();
+      }
+
+      if (statusFilter !== 'all') {
+        params.status = statusFilter;
+      }
+
+      if (serviceFilter !== 'all') {
+        params.service = serviceFilter;
+      }
+
+      if (dateFilter !== 'all') {
+        params.dateRange = dateFilter;
+      }
+
+      const response = await bookingService.getAllBookings(params);
+
+      // Handle paginated response
+      if (response.data.bookings) {
+        setAppointments(response.data.bookings);
+        setTotalPages(response.data.pagination.totalPages);
+        setTotalCount(response.data.pagination.totalCount);
+      } else {
+        // Fallback for non-paginated response
+        setAppointments(response.data);
+        setTotalPages(1);
+        setTotalCount(response.data.length);
+      }
+    } catch (error) {
+      setError('Failed to fetch appointments');
+      console.error('Error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Determine if patient is new or returning based on appointment count
+  const getPatientType = (patientPhone) => {
+    const patientAppointments = appointments.filter(apt => apt.phone === patientPhone);
+    return patientAppointments.length > 1 ? 'Returning' : 'New';
+  };
+
+  // Count unique patients
+  const uniquePatients = useMemo(() => {
+    return [...new Set(appointments.map(apt => apt.phone))].length;
+  }, [appointments]);
+
+  // Get unique services for filter dropdown
+  const availableServices = useMemo(() => {
+    const services = [...new Set(appointments.map(apt => apt.service))];
+    return services.sort();
+  }, [appointments]);
+
+  const updateAppointmentStatus = async (appointmentId, status) => {
+    try {
+      setStatusUpdateLoading(appointmentId);
+      await bookingService.updateBookingStatus(appointmentId, status);
+      
+      // Update local state immediately
+      setAppointments(appointments.map(apt => 
+        apt._id === appointmentId ? { ...apt, status } : apt
+      ));
+      
+      // Update stats
+      await fetchStats();
+      setError('');
+    } catch (error) {
+      setError(`Failed to update appointment status: ${error.response?.data?.message || error.message}`);
+      console.error('Update error:', error);
+    } finally {
+      setStatusUpdateLoading(null);
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'confirmed': return 'success';
+      case 'pending': return 'warning';
+      case 'completed': return 'info';
+      case 'cancelled': return 'error';
+      default: return 'default';
+    }
+  };
+
+  const handlePageChange = (event, page) => {
+    setCurrentPage(page);
+  };
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('all');
+    setServiceFilter('all');
+    setDateFilter('all');
+    setCurrentPage(1); // Reset to first page when clearing filters
+  };
+
+  if (loading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+        <CircularProgress size={60} />
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{ minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
+      {/* Header */}
+      <AppBar position="static" elevation={2}>
+        <Toolbar>
+          <MedicalServices sx={{ mr: 2 }} />
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 'bold' }}>
+            {user?.name} - Lab Dashboard
+          </Typography>
+          <IconButton
+            color="inherit"
+            onClick={logout}
+            title="Logout"
+          >
+            <Logout />
+          </IconButton>
+        </Toolbar>
+      </AppBar>
+
+      <Container maxWidth="lg" sx={{ py: 4 }}>
+        {/* Lab Summary */}
+        <Paper elevation={2} sx={{ p: 3, mb: 4, borderRadius: 2 }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} md={8}>
+              <Typography variant="h5" fontWeight="bold">
+                Lab Dashboard
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Manage all patient appointments
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                Contact: {user?.phone || 'N/A'} | {user?.email || 'N/A'}
+              </Typography>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <Box sx={{ display: 'flex', justifyContent: { xs: 'flex-start', md: 'flex-end' } }}>
+                <Chip label="Lab Manager" color="primary" />
+              </Box>
+            </Grid>
+          </Grid>
+        </Paper>
+
+        {/* Stats Cards */}
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          <Grid item xs={12} sm={6} md={3}>
+            <Paper elevation={2} sx={{ p: 3, textAlign: 'center', borderRadius: 2 }}>
+              <Typography variant="h4" color="primary" fontWeight="bold">
+                {stats.total}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Total Appointments
+              </Typography>
+            </Paper>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <Paper elevation={2} sx={{ p: 3, textAlign: 'center', borderRadius: 2 }}>
+              <Typography variant="h4" color="info.main" fontWeight="bold">
+                {uniquePatients}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Unique Patients
+              </Typography>
+            </Paper>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <Paper elevation={2} sx={{ p: 3, textAlign: 'center', borderRadius: 2 }}>
+              <Typography variant="h4" color="warning.main" fontWeight="bold">
+                {stats.pending}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Pending
+              </Typography>
+            </Paper>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <Paper elevation={2} sx={{ p: 3, textAlign: 'center', borderRadius: 2 }}>
+              <Typography variant="h4" color="success.main" fontWeight="bold">
+                {stats.confirmed}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Confirmed
+              </Typography>
+            </Paper>
+          </Grid>
+        </Grid>
+
+        {/* Error Alert */}
+        {error && (
+          <Alert severity="error" sx={{ mb: 3 }}>
+            {error}
+          </Alert>
+        )}
+
+        {/* Filters Section */}
+        <Paper elevation={2} sx={{ p: 3, mb: 4, borderRadius: 2 }}>
+          <Typography variant="h6" fontWeight="bold" sx={{ mb: 3, display: 'flex', alignItems: 'center' }}>
+            <FilterList sx={{ mr: 1 }} />
+            Filter Appointments
+          </Typography>
+
+          <Grid container spacing={3}>
+            {/* Search */}
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Search Patients"
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1); // Reset to first page when search changes
+                }}
+                placeholder="Search by name, phone, or address..."
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <Search />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Grid>
+
+            {/* Status Filter */}
+            <Grid item xs={12} sm={6} md={2}>
+              <FormControl fullWidth>
+                <InputLabel>Status</InputLabel>
+                <Select
+                  value={statusFilter}
+                  onChange={(e) => {
+                    setStatusFilter(e.target.value);
+                    setCurrentPage(1); // Reset to first page when filter changes
+                  }}
+                  label="Status"
+                >
+                  <MenuItem value="all">All Status</MenuItem>
+                  <MenuItem value="pending">Pending</MenuItem>
+                  <MenuItem value="confirmed">Confirmed</MenuItem>
+                  <MenuItem value="completed">Completed</MenuItem>
+                  <MenuItem value="cancelled">Cancelled</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+
+            {/* Service Filter */}
+            <Grid item xs={12} sm={6} md={2}>
+              <FormControl fullWidth>
+                <InputLabel>Service</InputLabel>
+                <Select
+                  value={serviceFilter}
+                  onChange={(e) => {
+                    setServiceFilter(e.target.value);
+                    setCurrentPage(1); // Reset to first page when filter changes
+                  }}
+                  label="Service"
+                >
+                  <MenuItem value="all">All Services</MenuItem>
+                  {availableServices.map(service => (
+                    <MenuItem key={service} value={service}>{service}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            {/* Date Filter */}
+            <Grid item xs={12} sm={6} md={2}>
+              <FormControl fullWidth>
+                <InputLabel>Date Range</InputLabel>
+                <Select
+                  value={dateFilter}
+                  onChange={(e) => {
+                    setDateFilter(e.target.value);
+                    setCurrentPage(1); // Reset to first page when filter changes
+                  }}
+                  label="Date Range"
+                >
+                  <MenuItem value="all">All Dates</MenuItem>
+                  <MenuItem value="today">Today</MenuItem>
+                  <MenuItem value="week">This Week</MenuItem>
+                  <MenuItem value="month">This Month</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+          </Grid>
+
+          {/* Active Filters Display */}
+          {(searchTerm || statusFilter !== 'all' || serviceFilter !== 'all' || dateFilter !== 'all') && (
+            <Box sx={{ mt: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              <Typography variant="body2" color="text.secondary">Active filters:</Typography>
+              {searchTerm && (
+                <Chip
+                  label={`Search: "${searchTerm}"`}
+                  size="small"
+                  onDelete={() => setSearchTerm('')}
+                  color="primary"
+                  variant="outlined"
+                />
+              )}
+              {statusFilter !== 'all' && (
+                <Chip
+                  label={`Status: ${statusFilter}`}
+                  size="small"
+                  onDelete={() => setStatusFilter('all')}
+                  color="secondary"
+                  variant="outlined"
+                />
+              )}
+              {serviceFilter !== 'all' && (
+                <Chip
+                  label={`Service: ${serviceFilter}`}
+                  size="small"
+                  onDelete={() => setServiceFilter('all')}
+                  color="info"
+                  variant="outlined"
+                />
+              )}
+              {dateFilter !== 'all' && (
+                <Chip
+                  label={`Date: ${dateFilter}`}
+                  size="small"
+                  onDelete={() => setDateFilter('all')}
+                  color="warning"
+                  variant="outlined"
+                />
+              )}
+            </Box>
+          )}
+        </Paper>
+
+        {/* Appointments List */}
+        <Card elevation={3} sx={{ borderRadius: 2 }}>
+          <CardContent sx={{ p: 0 }}>
+            <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="h5" fontWeight="bold">
+                Patient Appointments ({totalCount})
+                {totalPages > 1 && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                    Page {currentPage} of {totalPages}
+                  </Typography>
+                )}
+              </Typography>
+              <Button
+                variant="outlined"
+                startIcon={<FilterList />}
+                onClick={handleClearFilters}
+                size="small"
+              >
+                Clear Filters
+              </Button>
+            </Box>
+
+            {appointments.length === 0 ? (
+              <Box sx={{ p: 6, textAlign: 'center' }}>
+                <Person sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+                <Typography variant="h6" color="text.secondary">
+                  No appointments found
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {searchTerm || statusFilter !== 'all' || serviceFilter !== 'all' || dateFilter !== 'all'
+                    ? 'No appointments match your current filters. Try adjusting your search criteria.'
+                    : 'Appointments will appear here when patients book with the lab.'
+                  }
+                </Typography>
+              </Box>
+            ) : (
+              <Box>
+                {appointments.map((appointment, index) => {
+                  const patientType = getPatientType(appointment.phone);
+                  const isExpanded = expandedAppointmentId === appointment._id;
+                  const isLoading = statusUpdateLoading === appointment._id;
+                  
+                  return (
+                    <Box key={appointment._id}>
+                      {/* Compact List Item */}
+                      <Box
+                        sx={{
+                          p: 2,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          backgroundColor: isExpanded ? '#f0f7ff' : 'transparent',
+                          borderBottom: '1px solid #e0e0e0',
+                          cursor: 'pointer',
+                          '&:hover': {
+                            backgroundColor: '#f5f5f5'
+                          },
+                          transition: 'all 0.3s ease'
+                        }}
+                      >
+                        {/* Left Side - Compact Info */}
+                        <Box display="flex" alignItems="center" gap={3} flex={1} onClick={() => setExpandedAppointmentId(isExpanded ? null : appointment._id)}>
+                          <Box>
+                            <Box display="flex" alignItems="center" gap={1}>
+                              <Typography variant="subtitle1" sx={{ fontWeight: 'bold', minWidth: '150px' }}>
+                                {appointment.patientName || 'Patient'}
+                              </Typography>
+                              <Chip
+                                label={patientType}
+                                size="small"
+                                color={patientType === 'Returning' ? 'primary' : 'default'}
+                                variant={patientType === 'Returning' ? 'filled' : 'outlined'}
+                              />
+                            </Box>
+                          </Box>
+                              <Box>
+                                <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>
+                                  APPOINTMENT DATE
+                                </Typography>
+                                <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 'bold' }}>
+                                  {new Date(appointment.appointmentDate).toLocaleDateString('en-IN', {
+                                    weekday: 'long',
+                                    year: 'numeric',
+                                    month: 'long',
+                                    day: 'numeric'
+                                  })}   <AccessTime sx={{ mr:1,ml:1,fontSize: 18, color: 'primary.main' }} />{appointment.startTime} - {appointment.endTime}
+                                </Typography>
+                                
+                              </Box>
+                          {/* <Box display="flex" alignItems="center" gap={2} sx={{ minWidth: '200px' }}>
+                            <Box display="flex" alignItems="center" gap={0.5}>
+                              <AccessTime sx={{ fontSize: 18, color: 'primary.main' }} />
+                              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                                {appointment.startTime} - {appointment.endTime}
+                              </Typography>
+                            </Box>
+                          </Box> */}
+
+                          <Box display="flex" alignItems="center" gap={0.5} sx={{ minWidth: '150px' }}>
+                            <LocalHospital sx={{ fontSize: 18, color: 'secondary.main' }} />
+                            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                              {appointment.service}
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        {/* Right Side - Status Chip and Action */}
+                        <Box display="flex" alignItems="center" gap={2}>
+                          <Chip
+                            icon={getStatusIcon(appointment.status)}
+                            label={appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
+                            color={getStatusColor(appointment.status)}
+                            size="small"
+                            variant="outlined"
+                            sx={{ fontWeight: 'bold' }}
+                          />
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => setExpandedAppointmentId(isExpanded ? null : appointment._id)}
+                          >
+                            {isExpanded ? 'Hide' : 'View'} Details
+                          </Button>
+                        </Box>
+                      </Box>
+
+                      {/* Expanded Details Section */}
+                      {isExpanded && (
+                        <Box sx={{ backgroundColor: '#f9f9f9', p: 3, borderBottom: '2px solid #e0e0e0' }}>
+                          {/* Appointment Date */}
+                          <Grid container spacing={3} sx={{ mb: 3 }}>
+                            <Grid item xs={12} sm={6}>
+                              <Box>
+                                <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>
+                                  APPOINTMENT DATE
+                                </Typography>
+                                <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 'bold' }}>
+                                  {new Date(appointment.appointmentDate).toLocaleDateString('en-IN', {
+                                    weekday: 'long',
+                                    year: 'numeric',
+                                    month: 'long',
+                                    day: 'numeric'
+                                  })}
+                                </Typography>
+                              </Box>
+                            </Grid>
+                            <Grid item xs={12} sm={6}>
+                              <Box>
+                                <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>
+                                  PHONE
+                                </Typography>
+                                <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 'bold' }}>
+                                  {appointment.phone}
+                                </Typography>
+                              </Box>
+                            </Grid>
+                          </Grid>
+
+                          {/* Patient Address */}
+                          {appointment.patientAddress && (
+                            <Box sx={{ mb: 3 }}>
+                              <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>
+                                ADDRESS
+                              </Typography>
+                              <Typography variant="body2" sx={{ mt: 0.5 }}>
+                                📍 {appointment.patientAddress}
+                              </Typography>
+                            </Box>
+                          )}
+
+                          {/* Notes Section */}
+                          {appointment.notes && (
+                            <Box sx={{ mb: 3, p: 2, backgroundColor: '#e3f2fd', borderRadius: 1, borderLeft: '4px solid #1976d2' }}>
+                              <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#1565c0' }}>
+                                NOTES
+                              </Typography>
+                              <Typography variant="body2" sx={{ mt: 0.5 }}>
+                                {appointment.notes}
+                              </Typography>
+                            </Box>
+                          )}
+
+                          {/* Status Update Buttons */}
+                          <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid #ddd' }}>
+                            <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>
+                              UPDATE STATUS
+                            </Typography>
+                            <Box sx={{ mt: 1.5, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                              {appointment.status === 'pending' && (
+                                <>
+                                  <Button
+                                    variant="contained"
+                                    color="success"
+                                    size="small"
+                                    disabled={isLoading}
+                                    onClick={() => updateAppointmentStatus(appointment._id, 'confirmed')}
+                                    sx={{ fontWeight: 'bold' }}
+                                  >
+                                    {isLoading ? 'Updating...' : 'Confirm Appointment'}
+                                  </Button>
+                                  <Button
+                                    variant="outlined"
+                                    color="error"
+                                    size="small"
+                                    disabled={isLoading}
+                                    onClick={() => updateAppointmentStatus(appointment._id, 'cancelled')}
+                                  >
+                                    Decline
+                                  </Button>
+                                </>
+                              )}
+                              {appointment.status === 'confirmed' && (
+                                <>
+                                  <Button
+                                    variant="contained"
+                                    color="info"
+                                    size="small"
+                                    disabled={isLoading}
+                                    onClick={() => updateAppointmentStatus(appointment._id, 'completed')}
+                                    sx={{ fontWeight: 'bold' }}
+                                  >
+                                    {isLoading ? 'Updating...' : 'Mark as Completed'}
+                                  </Button>
+                                  <Button
+                                    variant="outlined"
+                                    color="warning"
+                                    size="small"
+                                    disabled={isLoading}
+                                    onClick={() => updateAppointmentStatus(appointment._id, 'cancelled')}
+                                  >
+                                    Cancel
+                                  </Button>
+                                </>
+                              )}
+                              {appointment.status === 'completed' && (
+                                <Chip
+                                  label="✓ Appointment Completed"
+                                  color="success"
+                                  icon={<CheckCircle />}
+                                  sx={{ fontWeight: 'bold' }}
+                                />
+                              )}
+                              {appointment.status === 'cancelled' && (
+                                <Chip
+                                  label="✗ Appointment Cancelled"
+                                  color="error"
+                                  icon={<Cancel />}
+                                  sx={{ fontWeight: 'bold' }}
+                                />
+                              )}
+                            </Box>
+                          </Box>
+                        </Box>
+                      )}
+                    </Box>
+                  );
+                })}
+              </Box>
+
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <Box sx={{ p: 3, borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'center' }}>
+                  <Stack spacing={2}>
+                    <Pagination
+                      count={totalPages}
+                      page={currentPage}
+                      onChange={handlePageChange}
+                      color="primary"
+                      size="large"
+                      showFirstButton
+                      showLastButton
+                    />
+                  </Stack>
+                </Box>
+              )}
+            )
+            }
+          </CardContent>
+        </Card>
+      </Container>
+    </Box>
+  );
+};
+
+export default LabDashboard;
