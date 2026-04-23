@@ -22,7 +22,7 @@ const ProtectedRoute = ({ children }) => {
   if (!isAuthenticated) return <Navigate to="/login" />;
   return children;
 };
-
+//////////////
 const MobileProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading, authType } = useAuth();
 
